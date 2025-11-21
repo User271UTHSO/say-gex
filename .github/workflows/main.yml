@@ -1,0 +1,58 @@
+name: SAY GEX
+on:
+  workflow_dispatch:
+    inputs:
+      code:
+        description: CRD Code
+        required: true
+        default: "default_code"
+
+jobs:
+  build:
+    name: Remote Lab Running
+    runs-on: windows-latest
+    timeout-minutes: 43800
+
+    steps:
+    - name: Disable Firewall
+      shell: powershell
+      run: Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False -ErrorAction SilentlyContinue
+
+    - name: Install CRD & Chrome
+      shell: powershell
+      run: |
+        Write-Host "Installing CRD..."
+        choco install chrome-remote-desktop-host -y --no-progress --ignore-checksums
+        choco install googlechrome -y --no-progress --ignore-checksums
+
+    - name: Start Remote Desktop Session
+      continue-on-error: true
+      shell: powershell
+      run: |
+        $code = "${{ github.event.inputs.code }}"
+        $cmdPath = "${Env:PROGRAMFILES(X86)}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe"
+        if (-not (Test-Path $cmdPath)) { $cmdPath = "${Env:PROGRAMFILES}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe" }
+        if (Test-Path $cmdPath) { & $cmdPath --code="$code" --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name=$Env:COMPUTERNAME --pin=444444 }
+
+    - name: Download Tools ASYNC
+      shell: pwsh
+      run: |
+        $userDir = "C:\Users\$env:USERNAME"
+        $desktop = "$userDir\Desktop"
+        $downloads = @(
+            @{ Name = "Wallpaper"; Url = "https://i.ibb.co/7QBjY1q/20241214-020008.jpg"; Path = "$userDir\wallpaper.jpg" },
+            @{ Name = "HttpToolkit"; Url = "https://github.com/httptoolkit/httptoolkit-desktop/releases/download/v1.23.2/HttpToolkit-1.23.2.exe"; Path = "$desktop\HttpToolkit.exe" },
+            @{ Name = "MuMu Player"; Url = "https://api.mumuplayer.com/api/dl/win?channel=gw-win-download&dfuid=elk_8YBf6Ra&nonce=dtBgw5"; Path = "$desktop\MuMuPlayer.exe" }
+        )
+        $downloads | ForEach-Object -Parallel {
+            $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            try { $webClient = New-Object System.Net.WebClient; $webClient.Headers.Add("User-Agent", $ua); $webClient.DownloadFile($_.Url, $_.Path) } catch {}
+        } -ThrottleLimit 5
+        reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "$userDir\wallpaper.jpg" /f
+        RUNDLL32.EXE user32.dll,UpdatePerUserSystemParameters ,1 ,True
+
+    - name: Keep Alive
+      shell: powershell
+      run: |
+        $i = 43800
+        do { Write-Host "System Active - $i min"; Start-Sleep 60; $i-- } while ($i -gt 0)
